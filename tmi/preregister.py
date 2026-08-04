@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
 
+from tmi.anchor import SigstoreAnchorVerification, verify_sigstore_anchor
 from tmi.models import Direction, EventRecord, ExpectedReaction
 
 COMMITMENT_VERSION = "1.0"
@@ -100,10 +101,14 @@ class VerifiedPreregistration:
     commitment_hash_sha256: str
     registration_clock: str
     scheduled_event_at: datetime | None
-    external_timestamp_verified: bool
+    external_anchor: SigstoreAnchorVerification | None = None
+
+    @property
+    def external_timestamp_verified(self) -> bool:
+        return self.external_anchor is not None
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "verified": True,
             "commitment_version": COMMITMENT_VERSION,
             "commitment_algorithm": COMMITMENT_ALGORITHM,
@@ -117,6 +122,9 @@ class VerifiedPreregistration:
             ),
             "external_timestamp_verified": self.external_timestamp_verified,
         }
+        if self.external_anchor is not None:
+            payload["external_anchor"] = self.external_anchor.as_dict()
+        return payload
 
 
 def create_commitment(
@@ -173,6 +181,7 @@ def finalize_commitment(
     occurred_at: datetime,
     published_at: datetime,
     source_confidence: float,
+    anchor_verification: SigstoreAnchorVerification | None = None,
 ) -> dict[str, Any]:
     """Bind observed event timestamps to a previously fixed hypothesis."""
 
@@ -182,6 +191,14 @@ def finalize_commitment(
         raise ValueError("published_at must include a timezone")
     if occurred_at < commitment.registered_at:
         raise ValueError("occurred_at must not precede preregistration")
+    if (
+        anchor_verification is not None
+        and not hmac.compare_digest(
+            anchor_verification.commitment_hash_sha256,
+            commitment.commitment_hash_sha256,
+        )
+    ):
+        raise ValueError("Sigstore anchor does not match hypothesis commitment")
 
     event = EventRecord(
         event_id=commitment.event_id,
@@ -192,6 +209,22 @@ def finalize_commitment(
         source_confidence=source_confidence,
         reaction=commitment.reaction,
     )
+    preregistration: dict[str, Any] = {
+        "commitment_version": COMMITMENT_VERSION,
+        "commitment_algorithm": COMMITMENT_ALGORITHM,
+        "commitment_hash_sha256": commitment.commitment_hash_sha256,
+        "registered_at": commitment.registered_at.isoformat(),
+        "registration_clock": REGISTRATION_CLOCK,
+        "scheduled_event_at": (
+            None
+            if commitment.scheduled_event_at is None
+            else commitment.scheduled_event_at.isoformat()
+        ),
+        "external_timestamp_verified": anchor_verification is not None,
+    }
+    if anchor_verification is not None:
+        preregistration["external_anchor"] = anchor_verification.as_dict()
+
     return {
         "event": {
             "event_id": event.event_id,
@@ -207,19 +240,7 @@ def finalize_commitment(
                 "minimum_move_pct": event.reaction.minimum_move_pct,
             },
         },
-        "preregistration": {
-            "commitment_version": COMMITMENT_VERSION,
-            "commitment_algorithm": COMMITMENT_ALGORITHM,
-            "commitment_hash_sha256": commitment.commitment_hash_sha256,
-            "registered_at": commitment.registered_at.isoformat(),
-            "registration_clock": REGISTRATION_CLOCK,
-            "scheduled_event_at": (
-                None
-                if commitment.scheduled_event_at is None
-                else commitment.scheduled_event_at.isoformat()
-            ),
-            "external_timestamp_verified": False,
-        },
+        "preregistration": preregistration,
     }
 
 
@@ -267,15 +288,36 @@ def verify_optional_preregistration(
     if event.occurred_at < registered_at:
         raise ValueError("event occurred before preregistration")
 
-    external_verified = metadata.get("external_timestamp_verified", False)
-    if not isinstance(external_verified, bool):
+    declared_external = metadata.get("external_timestamp_verified", False)
+    if not isinstance(declared_external, bool):
         raise ValueError("external_timestamp_verified must be boolean")
+    raw_anchor = metadata.get("external_anchor")
+    if raw_anchor is None:
+        if declared_external:
+            raise ValueError(
+                "external_timestamp_verified requires verified external_anchor metadata"
+            )
+        external_anchor = None
+    else:
+        if not isinstance(raw_anchor, Mapping):
+            raise ValueError("external_anchor must be a JSON object")
+        if not declared_external:
+            raise ValueError("external_anchor requires external_timestamp_verified=true")
+        external_anchor = SigstoreAnchorVerification.from_mapping(
+            cast(Mapping[str, Any], raw_anchor)
+        )
+        if not hmac.compare_digest(
+            external_anchor.commitment_hash_sha256,
+            stored_hash,
+        ):
+            raise ValueError("external_anchor does not match preregistration commitment")
+
     return VerifiedPreregistration(
         registered_at=registered_at,
         commitment_hash_sha256=stored_hash,
         registration_clock=REGISTRATION_CLOCK,
         scheduled_event_at=scheduled_at,
-        external_timestamp_verified=external_verified,
+        external_anchor=external_anchor,
     )
 
 
@@ -302,6 +344,11 @@ def build_parser() -> argparse.ArgumentParser:
     finalize.add_argument("--occurred-at", type=_parse_datetime, required=True)
     finalize.add_argument("--published-at", type=_parse_datetime, required=True)
     finalize.add_argument("--source-confidence", type=float, default=1.0)
+    finalize.add_argument("--anchor-payload", type=Path)
+    finalize.add_argument("--anchor-bundle", type=Path)
+    finalize.add_argument("--certificate-identity")
+    finalize.add_argument("--certificate-oidc-issuer")
+    finalize.add_argument("--cosign-binary", default="cosign")
     finalize.add_argument("--output", type=Path, required=True)
     return parser
 
@@ -330,11 +377,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             }
         else:
             commitment = load_commitment(args.commitment)
+            anchor_verification = _anchor_verification_from_args(args, commitment)
             finalized = finalize_commitment(
                 commitment,
                 occurred_at=args.occurred_at,
                 published_at=args.published_at,
                 source_confidence=args.source_confidence,
+                anchor_verification=anchor_verification,
             )
             _write_new_json(args.output, finalized)
             report = {
@@ -342,11 +391,41 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "path": str(args.output),
                 "commitment_hash_sha256": commitment.commitment_hash_sha256,
                 "registered_at": commitment.registered_at.isoformat(),
+                "external_timestamp_verified": anchor_verification is not None,
             }
+            if anchor_verification is not None:
+                report["external_anchor"] = anchor_verification.as_dict()
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
         raise SystemExit(f"tmi-preregister: {exc}") from exc
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0
+
+
+def _anchor_verification_from_args(
+    args: argparse.Namespace,
+    commitment: HypothesisCommitment,
+) -> SigstoreAnchorVerification | None:
+    required = (
+        args.anchor_payload,
+        args.anchor_bundle,
+        args.certificate_identity,
+        args.certificate_oidc_issuer,
+    )
+    if not any(value is not None for value in required):
+        return None
+    if not all(value is not None for value in required):
+        raise ValueError(
+            "anchored finalization requires --anchor-payload, --anchor-bundle, "
+            "--certificate-identity, and --certificate-oidc-issuer"
+        )
+    return verify_sigstore_anchor(
+        commitment.commitment_hash_sha256,
+        args.anchor_payload,
+        args.anchor_bundle,
+        certificate_identity=args.certificate_identity,
+        certificate_oidc_issuer=args.certificate_oidc_issuer,
+        cosign_binary=args.cosign_binary,
+    )
 
 
 def _commitment_from_mapping(payload: Mapping[str, Any]) -> HypothesisCommitment:
