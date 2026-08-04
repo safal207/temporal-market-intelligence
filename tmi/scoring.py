@@ -39,7 +39,7 @@ class RealizationScorer:
         event: EventRecord,
         before: MarketSnapshot,
         after: MarketSnapshot,
-        baseline_volume: float,
+        baseline_volume: float | None,
         *,
         pre_before: MarketSnapshot | None = None,
         pre_after: MarketSnapshot | None = None,
@@ -101,10 +101,10 @@ class RealizationScorer:
             verdict = Verdict.PARTIALLY_CONFIRMED
         elif (
             abs(features.price_change_pct) < max(0.10, minimum_move * 0.25)
-            and features.relative_volume < 1.10
+            and (features.volume_available == 0.0 or features.relative_volume < 1.10)
         ):
             verdict = Verdict.NO_REACTION
-            reasons.append("No material price or volume response was observed")
+            reasons.append("No material price response was observed")
         else:
             verdict = Verdict.NO_SIGNAL
             reasons.append("Evidence was mixed or below deterministic thresholds")
@@ -121,10 +121,10 @@ class RealizationScorer:
         event: EventRecord,
         before: MarketSnapshot,
         after: MarketSnapshot,
-        baseline_volume: float,
+        baseline_volume: float | None,
     ) -> str | None:
-        if baseline_volume <= 0:
-            return "baseline_volume must be greater than zero"
+        if baseline_volume is not None and baseline_volume <= 0:
+            return "baseline_volume must be greater than zero when provided"
         if before.timestamp > event.published_at:
             return "before snapshot must not be later than event publication"
         if after.timestamp < event.published_at:
@@ -153,35 +153,47 @@ class RealizationScorer:
             score += 0.25
             reasons.append("Price moved in the expected direction but below threshold")
 
-        if features.relative_volume >= self.config.volume_multiple:
-            score += 0.20
-            reasons.append("Volume exceeded the event-window baseline")
+        if features.volume_available == 1.0:
+            if features.relative_volume >= self.config.volume_multiple:
+                score += 0.20
+                reasons.append("Volume exceeded the event-window baseline")
+        else:
+            reasons.append("Volume baseline unavailable; volume confirmation was omitted")
 
-        book_aligned = (
-            direction is Direction.UP
-            and features.order_book_imbalance >= self.config.order_book_imbalance
-        ) or (
-            direction is Direction.DOWN
-            and features.order_book_imbalance <= -self.config.order_book_imbalance
-        )
-        if book_aligned:
-            score += 0.15
-            reasons.append("Order-book depth aligned with the expected direction")
+        if features.order_book_available == 1.0:
+            book_aligned = (
+                direction is Direction.UP
+                and features.order_book_imbalance >= self.config.order_book_imbalance
+            ) or (
+                direction is Direction.DOWN
+                and features.order_book_imbalance <= -self.config.order_book_imbalance
+            )
+            if book_aligned:
+                score += 0.15
+                reasons.append("Order-book depth aligned with the expected direction")
+        else:
+            reasons.append("Order-book depth unavailable; book confirmation was omitted")
 
-        flow_aligned = (
-            direction is Direction.UP
-            and features.aggressive_sell_ratio <= 1.0 - self.config.aggressive_flow_ratio
-        ) or (
-            direction is Direction.DOWN
-            and features.aggressive_sell_ratio >= self.config.aggressive_flow_ratio
-        )
-        if flow_aligned:
-            score += 0.15
-            reasons.append("Aggressive trade flow aligned with the expected direction")
+        if features.aggressive_flow_available == 1.0:
+            flow_aligned = (
+                direction is Direction.UP
+                and features.aggressive_sell_ratio <= 1.0 - self.config.aggressive_flow_ratio
+            ) or (
+                direction is Direction.DOWN
+                and features.aggressive_sell_ratio >= self.config.aggressive_flow_ratio
+            )
+            if flow_aligned:
+                score += 0.15
+                reasons.append("Aggressive trade flow aligned with the expected direction")
+        else:
+            reasons.append("Aggressive trade flow unavailable; flow confirmation was omitted")
 
-        if features.spread_change_ratio >= self.config.spread_expansion_ratio:
-            score += 0.05
-            reasons.append("Spread expansion confirmed elevated execution uncertainty")
+        if features.spread_available == 1.0:
+            if features.spread_change_ratio >= self.config.spread_expansion_ratio:
+                score += 0.05
+                reasons.append("Spread expansion confirmed elevated execution uncertainty")
+        else:
+            reasons.append("Bid/ask spread unavailable; spread confirmation was omitted")
 
         return score, reasons
 
