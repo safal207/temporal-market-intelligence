@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from tmi.models import Direction, EventRecord, ExpectedReaction, MarketSnapshot, Verdict
+from tmi.models import (
+    Direction,
+    EventRecord,
+    ExpectedReaction,
+    MarketSnapshot,
+    Verdict,
+)
 from tmi.scoring import RealizationScorer
 
 
