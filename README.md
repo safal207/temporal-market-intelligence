@@ -55,7 +55,11 @@ The adapter:
 - calculates spread in basis points when needed;
 - selects the nearest point-in-time quote within a strict tolerance;
 - calculates pre-event baseline volume from comparable recorded intervals;
-- rejects crossed books, missing timestamps, stale evidence, and absent baseline volume.
+- rejects crossed books, missing timestamps, stale evidence, and absent baseline volume;
+- automatically verifies the Smart Market Data Gateway SHA-256 evidence ledger when ledger metadata is present;
+- rejects altered rows, broken chain links, non-contiguous indexes, invalid provenance, and files that mix legacy and ledger rows.
+
+Legacy JSONL recordings without ledger metadata remain supported for existing fixtures and migration. Once any ledger field is present, every row must belong to one valid chain; TMI fails closed before market scoring if integrity verification fails.
 
 This gives us a real integration boundary now while preserving deterministic replay for backtests and investor-facing evidence.
 
@@ -63,8 +67,8 @@ This gives us a real integration boundary now while preserving deterministic rep
 
 | System | Responsibility |
 |---|---|
-| `temporal-market-intelligence` | Event hypotheses, market realization scoring, attribution, backtesting |
-| `smart-market-data-gateway` | Reliable normalized market-data delivery and stream recording |
+| `temporal-market-intelligence` | Event hypotheses, evidence verification, market realization scoring, attribution, backtesting |
+| `smart-market-data-gateway` | Reliable normalized market-data delivery, provenance, and tamper-evident stream recording |
 | `Causal-Memory-Layer` | Optional causal evidence and lineage protocol |
 | `finanalytics-core` | Portfolio-level impact and risk analytics |
 
@@ -78,18 +82,20 @@ This MVP:
 - does not provide investment advice;
 - does not prove causality from observational market data;
 - does not hide uncertain or negative outcomes;
-- does not use an LLM in the scoring path.
+- does not use an LLM in the scoring path;
+- does not treat a local hash chain as a digital signature or external timestamp.
 
 Its narrow goal is to make event-driven market hypotheses explicit, testable, and reproducible.
 
 ## Next milestones
 
-1. Implement a gateway WebSocket recorder producing the normalized JSONL contract.
-2. Represent event windows as time series rather than two snapshots.
-3. Calculate abnormal return against market and sector baselines.
-4. Store 100-200 timestamped event records.
-5. Compare TMI with sentiment-only and price-only baselines.
-6. Add confounder detection and walk-forward evaluation.
+1. Capture and replay the first real gateway WebSocket evidence ledger.
+2. Anchor or sign ledger head hashes outside the recording file.
+3. Represent event windows as time series rather than two snapshots.
+4. Calculate abnormal return against market and sector baselines.
+5. Store 100-200 timestamped event records.
+6. Compare TMI with sentiment-only and price-only baselines.
+7. Add confounder detection and walk-forward evaluation.
 
 ## License
 
