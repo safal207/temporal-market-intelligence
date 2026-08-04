@@ -7,7 +7,8 @@ Temporal Market Intelligence is the analytical layer between timestamped events 
 ```text
 Event sources
     -> event normalization and pre-registered expectation
-    -> market-data adapter
+    -> Smart Market Data Gateway stream / recording
+    -> point-in-time market-data adapter
     -> deterministic feature calculation
     -> realization scorer
     -> reviewable verdict and evidence
@@ -15,9 +16,31 @@ Event sources
 
 The MVP deliberately separates three concerns:
 
-1. **Data delivery** belongs to `smart-market-data-gateway`.
+1. **Data delivery and stream recording** belong to `smart-market-data-gateway`.
 2. **Market realization analysis** belongs to this repository.
 3. **Causal evidence lineage** may later be exported to `Causal-Memory-Layer`.
+
+## Gateway integration decision
+
+The gateway currently guarantees normalized latest quotes and a live WebSocket contract. TMI requires historical point-in-time evidence for replay and backtesting. Until the gateway explicitly offers a licensed historical endpoint, the integration boundary is a normalized JSONL recording of gateway events.
+
+```text
+Gateway WebSocket
+    -> normalized quote events
+    -> append-only JSONL recording
+    -> RecordedSmartMarketDataGateway
+    -> snapshots nearest to registered event times
+```
+
+The adapter fails closed when:
+
+- a quote lacks a symbol or timezone-aware timestamp;
+- price cannot be obtained directly or from bid/ask midpoint;
+- bid exceeds ask;
+- the nearest quote is outside the configured tolerance;
+- baseline volume is unavailable.
+
+This avoids look-ahead substitution and makes every evaluation reproducible.
 
 ## Core records
 
@@ -81,12 +104,13 @@ The MVP establishes several invariants:
 - the before snapshot cannot occur after publication;
 - the after snapshot cannot occur before publication;
 - the after snapshot must remain inside the registered horizon;
+- gateway evidence must be near the requested point in time;
 - pre-publication movement is evaluated separately;
 - uncertain cases may return `NO_SIGNAL`.
 
 ## Next architecture increments
 
-1. Add a real adapter for `smart-market-data-gateway`.
+1. Add a gateway WebSocket recorder producing the normalized JSONL contract.
 2. Represent event windows as time series rather than two snapshots.
 3. Calculate abnormal return against market and sector baselines.
 4. Add concurrent-event and confounder records.
