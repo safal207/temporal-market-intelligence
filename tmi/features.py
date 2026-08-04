@@ -16,6 +16,10 @@ class MarketFeatures:
     aggressive_sell_ratio: float
     order_book_imbalance: float
     spread_change_ratio: float
+    volume_available: float
+    aggressive_flow_available: float
+    order_book_available: float
+    spread_available: float
 
     def as_dict(self) -> dict[str, float]:
         return {
@@ -24,6 +28,10 @@ class MarketFeatures:
             "aggressive_sell_ratio": self.aggressive_sell_ratio,
             "order_book_imbalance": self.order_book_imbalance,
             "spread_change_ratio": self.spread_change_ratio,
+            "volume_available": self.volume_available,
+            "aggressive_flow_available": self.aggressive_flow_available,
+            "order_book_available": self.order_book_available,
+            "spread_available": self.spread_available,
         }
 
 
@@ -66,21 +74,34 @@ def order_book_imbalance(snapshot: MarketSnapshot) -> float:
 def calculate_market_features(
     before: MarketSnapshot,
     after: MarketSnapshot,
-    baseline_volume: float,
+    baseline_volume: float | None,
 ) -> MarketFeatures:
-    """Calculate the minimal deterministic feature set for one event window."""
+    """Calculate deterministic features without inventing unavailable evidence."""
 
     if after.timestamp <= before.timestamp:
         raise ValueError("after snapshot must be later than before snapshot")
 
+    volume_available = baseline_volume is not None and baseline_volume > 0 and after.volume > 0
+    aggressive_flow_available = after.buy_volume + after.sell_volume > 0
+    order_book_available = after.bid_depth + after.ask_depth > 0
+    spread_available = before.spread_bps > 0 and after.spread_bps > 0
+
+    relative_volume = 0.0
+    if volume_available and baseline_volume is not None:
+        relative_volume = ratio(after.volume, baseline_volume)
+
     spread_change_ratio = 1.0
-    if before.spread_bps > 0:
+    if spread_available:
         spread_change_ratio = ratio(after.spread_bps, before.spread_bps)
 
     return MarketFeatures(
         price_change_pct=percentage_change(before.price, after.price),
-        relative_volume=ratio(after.volume, baseline_volume),
+        relative_volume=relative_volume,
         aggressive_sell_ratio=aggressive_sell_ratio(after),
         order_book_imbalance=order_book_imbalance(after),
         spread_change_ratio=spread_change_ratio,
+        volume_available=float(volume_available),
+        aggressive_flow_available=float(aggressive_flow_available),
+        order_book_available=float(order_book_available),
+        spread_available=float(spread_available),
     )
