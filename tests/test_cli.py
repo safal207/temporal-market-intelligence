@@ -1,10 +1,13 @@
 import json
 import stat
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from tmi.cli import analyze_file, analyze_gateway_recording, main
+from tmi.models import Direction
+from tmi.preregister import create_commitment, finalize_commitment
 
 
 def test_example_produces_confirmed_report() -> None:
@@ -30,6 +33,37 @@ def test_gateway_recording_produces_confirmed_receipt() -> None:
     assert manifest["ledger_verified"] is True
     assert manifest["symbols"] == ["BTC/USDT"]
     assert manifest["ledger_head_hash"] == manifest["evidence_fingerprint_sha256"]
+
+
+def test_gateway_receipt_binds_verified_preregistration(tmp_path: Path) -> None:
+    commitment = create_commitment(
+        event_id="btc-policy-shock-001",
+        headline="Unexpected policy announcement pressures risk assets",
+        source="official-source",
+        asset="BTC/USDT",
+        direction=Direction.DOWN,
+        horizon_minutes=30,
+        minimum_move_pct=0.5,
+        registered_at=datetime(2026, 8, 1, 11, 0, tzinfo=UTC),
+    )
+    event_payload = finalize_commitment(
+        commitment,
+        occurred_at=datetime(2026, 8, 1, 12, 0, tzinfo=UTC),
+        published_at=datetime(2026, 8, 1, 12, 0, tzinfo=UTC),
+        source_confidence=0.98,
+    )
+    event_path = tmp_path / "event.json"
+    event_path.write_text(json.dumps(event_payload), encoding="utf-8")
+
+    report = analyze_gateway_recording(
+        event_path,
+        Path("examples/gateway_quotes.jsonl"),
+    )
+
+    preregistration = report["preregistration"]
+    assert preregistration["verified"] is True
+    assert preregistration["commitment_hash_sha256"] == commitment.commitment_hash_sha256
+    assert preregistration["external_timestamp_verified"] is False
 
 
 def test_cli_writes_new_private_replay_receipt(

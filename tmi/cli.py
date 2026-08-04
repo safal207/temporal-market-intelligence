@@ -11,6 +11,7 @@ from typing import Any, cast
 
 from tmi.adapters import RecordedSmartMarketDataGateway
 from tmi.models import EventRecord, MarketSnapshot, RealizationResult
+from tmi.preregister import verify_optional_preregistration
 from tmi.receipt import build_recording_manifest, event_fingerprint_sha256
 from tmi.scoring import RealizationScorer
 from tmi.service import RealizationService
@@ -66,6 +67,16 @@ def _report(event: EventRecord, result: RealizationResult) -> dict[str, Any]:
     }
 
 
+def _attach_preregistration(
+    report: dict[str, Any],
+    payload: Mapping[str, Any],
+    event: EventRecord,
+) -> None:
+    verified = verify_optional_preregistration(payload, event)
+    if verified is not None:
+        report["preregistration"] = verified.as_dict()
+
+
 def analyze_file(path: Path) -> dict[str, Any]:
     """Analyze one self-contained JSON fixture."""
 
@@ -83,13 +94,17 @@ def analyze_file(path: Path) -> dict[str, Any]:
         pre_before=_optional_snapshot(payload, "pre_before"),
         pre_after=_optional_snapshot(payload, "pre_after"),
     )
-    return _report(event, result)
+    report = _report(event, result)
+    _attach_preregistration(report, payload, event)
+    return report
 
 
 def analyze_gateway_recording(event_path: Path, recording_path: Path) -> dict[str, Any]:
     """Evaluate an event against verified Smart Market Data Gateway JSONL."""
 
-    event = _event_from_payload(_read_object(event_path))
+    payload = _read_object(event_path)
+    event = _event_from_payload(payload)
+    preregistration = verify_optional_preregistration(payload, event)
     gateway = RecordedSmartMarketDataGateway.from_jsonl(recording_path)
     manifest = build_recording_manifest(
         recording_path,
@@ -98,6 +113,8 @@ def analyze_gateway_recording(event_path: Path, recording_path: Path) -> dict[st
     result = RealizationService().evaluate(event, gateway)
     report = _report(event, result)
     report["recording_manifest"] = manifest.as_dict()
+    if preregistration is not None:
+        report["preregistration"] = preregistration.as_dict()
     return report
 
 
