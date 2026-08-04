@@ -1,0 +1,30 @@
+{
+  "capture": {
+    "end_at": "2026-08-07T13:15:00+00:00",
+    "start_at": "2026-08-07T11:45:00+00:00",
+    "symbol": "BTC-USD"
+  },
+  "event": {
+    "asset": "BTC-USD",
+    "direction": "down",
+    "headline": "BLS Employment Situation for July 2026",
+    "horizon_minutes": 30,
+    "minimum_move_pct": 0.5,
+    "official_source_url": "https://www.bls.gov/cps/publications/release-calendar.htm",
+    "scheduled_event_at": "2026-08-07T12:30:00+00:00",
+    "source": "U.S. Bureau of Labor Statistics"
+  },
+  "experiment_id": "bls-employment-2026-08-07-btc-down",
+  "experiment_schema_version": "1.0",
+  "paths": {
+    "commitment": "events/bls-employment-2026-08-07.commitment.json",
+    "event": "events/bls-employment-2026-08-07.event.json",
+    "evidence_anchor_bundle": "anchors/bls-employment-2026-08-07.evidence.sigstore.json",
+    "evidence_anchor_payload": "anchors/bls-employment-2026-08-07.evidence.anchor.json",
+    "hypothesis_anchor_bundle": "anchors/bls-employment-2026-08-07.hypothesis.sigstore.json",
+    "hypothesis_anchor_payload": "anchors/bls-employment-2026-08-07.hypothesis.anchor.json",
+    "receipt": "recordings/bls-employment-2026-08-07.receipt.json",
+    "recording": "recordings/bls-employment-2026-08-07-btc-usd.jsonl"
+  },
+  "preregistration_deadline": "2026-08-07T11:30:00+00:00"
+}
