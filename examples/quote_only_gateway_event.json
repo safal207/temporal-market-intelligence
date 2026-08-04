@@ -1,0 +1,16 @@
+{
+  "event": {
+    "event_id": "quote-only-up-001",
+    "headline": "Pre-registered upward quote-only demonstration",
+    "source": "demo-source",
+    "occurred_at": "2026-08-01T12:00:00+00:00",
+    "published_at": "2026-08-01T12:00:00+00:00",
+    "source_confidence": 1.0,
+    "reaction": {
+      "asset": "BTC/USDT",
+      "direction": "up",
+      "horizon_minutes": 1,
+      "minimum_move_pct": 0.5
+    }
+  }
+}

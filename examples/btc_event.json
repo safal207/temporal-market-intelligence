@@ -1,0 +1,47 @@
+{
+  "event": {
+    "event_id": "btc-demo-001",
+    "headline": "Unexpected negative market event affects BTC risk appetite",
+    "source": "demo-source",
+    "occurred_at": "2026-08-01T12:00:00+00:00",
+    "published_at": "2026-08-01T12:00:00+00:00",
+    "source_confidence": 0.95,
+    "reaction": {
+      "asset": "BTC/USDT",
+      "direction": "down",
+      "horizon_minutes": 30,
+      "minimum_move_pct": 0.5
+    }
+  },
+  "baseline_volume": 500.0,
+  "pre_before": {
+    "timestamp": "2026-08-01T11:50:00+00:00",
+    "price": 65020.0,
+    "volume": 410.0
+  },
+  "pre_after": {
+    "timestamp": "2026-08-01T11:59:00+00:00",
+    "price": 65000.0,
+    "volume": 430.0
+  },
+  "before": {
+    "timestamp": "2026-08-01T11:59:59+00:00",
+    "price": 65000.0,
+    "volume": 420.0,
+    "buy_volume": 190.0,
+    "sell_volume": 230.0,
+    "bid_depth": 950.0,
+    "ask_depth": 1050.0,
+    "spread_bps": 2.0
+  },
+  "after": {
+    "timestamp": "2026-08-01T12:05:00+00:00",
+    "price": 64200.0,
+    "volume": 1300.0,
+    "buy_volume": 325.0,
+    "sell_volume": 975.0,
+    "bid_depth": 600.0,
+    "ask_depth": 1400.0,
+    "spread_bps": 5.0
+  }
+}
