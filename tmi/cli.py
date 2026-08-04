@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, cast
 
 from tmi.adapters import RecordedSmartMarketDataGateway
 from tmi.models import EventRecord, MarketSnapshot, RealizationResult
+from tmi.receipt import build_recording_manifest, event_fingerprint_sha256
 from tmi.scoring import RealizationScorer
 from tmi.service import RealizationService
+
+REPLAY_RECEIPT_SCHEMA_VERSION = "1.0"
 
 
 def _mapping(payload: Mapping[str, Any], key: str) -> Mapping[str, Any]:
@@ -51,7 +55,9 @@ def _event_from_payload(payload: Mapping[str, Any]) -> EventRecord:
 
 def _report(event: EventRecord, result: RealizationResult) -> dict[str, Any]:
     return {
+        "replay_receipt_schema_version": REPLAY_RECEIPT_SCHEMA_VERSION,
         "event_id": event.event_id,
+        "event_fingerprint_sha256": event_fingerprint_sha256(event),
         "asset": event.reaction.asset,
         "verdict": result.verdict.value,
         "score": round(result.score, 4),
@@ -81,12 +87,18 @@ def analyze_file(path: Path) -> dict[str, Any]:
 
 
 def analyze_gateway_recording(event_path: Path, recording_path: Path) -> dict[str, Any]:
-    """Evaluate an event against normalized Smart Market Data Gateway JSONL."""
+    """Evaluate an event against verified Smart Market Data Gateway JSONL."""
 
     event = _event_from_payload(_read_object(event_path))
     gateway = RecordedSmartMarketDataGateway.from_jsonl(recording_path)
+    manifest = build_recording_manifest(
+        recording_path,
+        verified_gateway=gateway,
+    )
     result = RealizationService().evaluate(event, gateway)
-    return _report(event, result)
+    report = _report(event, result)
+    report["recording_manifest"] = manifest.as_dict()
+    return report
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -97,12 +109,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "input",
         type=Path,
-        help="Path to a self-contained scenario or event JSON file",
+        help="Path to a self-contained scenario or pre-registered event JSON file",
     )
     parser.add_argument(
         "--gateway-recording",
         type=Path,
         help="Normalized Smart Market Data Gateway JSONL recording",
+    )
+    parser.add_argument(
+        "--receipt-output",
+        type=Path,
+        help="Write the complete replay receipt as a new private JSON file under recordings/",
     )
     return parser
 
@@ -111,13 +128,46 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         if args.gateway_recording is None:
+            if args.receipt_output is not None:
+                raise ValueError("--receipt-output requires --gateway-recording")
             report = analyze_file(args.input)
         else:
             report = analyze_gateway_recording(args.input, args.gateway_recording)
+            if args.receipt_output is not None:
+                _write_private_receipt(args.receipt_output, report)
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
         raise SystemExit(f"tmi: {exc}") from exc
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0
+
+
+def _write_private_receipt(path: Path, report: Mapping[str, Any]) -> None:
+    if path.suffix.lower() != ".json":
+        raise ValueError("replay receipt output must use the .json suffix")
+    if "recordings" not in path.parts:
+        raise ValueError("replay receipt output must be inside a recordings/ directory")
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = (
+        json.dumps(report, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
+    ).encode("utf-8")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+    if hasattr(os, "O_CLOEXEC"):
+        flags |= os.O_CLOEXEC
+    descriptor = os.open(path, flags, 0o600)
+    try:
+        remaining = memoryview(payload)
+        while remaining:
+            written = os.write(descriptor, remaining)
+            if written <= 0:
+                raise OSError("replay receipt write made no progress")
+            remaining = remaining[written:]
+        os.fsync(descriptor)
+    except BaseException:
+        os.close(descriptor)
+        path.unlink(missing_ok=True)
+        raise
+    os.close(descriptor)
 
 
 if __name__ == "__main__":
