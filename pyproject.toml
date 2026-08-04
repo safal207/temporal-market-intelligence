@@ -21,6 +21,7 @@ dev = [
 
 [project.scripts]
 tmi = "tmi.cli:main"
+tmi-anchor = "tmi.anchor:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["tmi"]
