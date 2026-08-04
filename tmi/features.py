@@ -85,9 +85,17 @@ def calculate_market_features(
     if after.timestamp <= before.timestamp:
         raise ValueError("after snapshot must be later than before snapshot")
 
-    volume_available = baseline_volume is not None and baseline_volume > 0 and after.volume is not None
-    aggressive_flow_available = after.buy_volume is not None and after.sell_volume is not None
-    order_book_available = after.bid_depth is not None and after.ask_depth is not None
+    volume_available = (
+        baseline_volume is not None
+        and baseline_volume > 0
+        and after.volume is not None
+    )
+    aggressive_flow_available = (
+        after.buy_volume is not None and after.sell_volume is not None
+    )
+    order_book_available = (
+        after.bid_depth is not None and after.ask_depth is not None
+    )
     spread_available = (
         before.spread_bps is not None
         and after.spread_bps is not None
@@ -99,7 +107,11 @@ def calculate_market_features(
         relative_volume = ratio(after.volume, baseline_volume)
 
     spread_change_ratio = 1.0
-    if spread_available and before.spread_bps is not None and after.spread_bps is not None:
+    if (
+        spread_available
+        and before.spread_bps is not None
+        and after.spread_bps is not None
+    ):
         spread_change_ratio = ratio(after.spread_bps, before.spread_bps)
 
     return MarketFeatures(
