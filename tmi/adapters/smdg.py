@@ -7,12 +7,12 @@ recording of those normalized quote events rather than inventing a historical AP
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
-from datetime import datetime, timedelta
 import hashlib
 import hmac
 import json
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 from statistics import fmean
 from typing import Any, cast
