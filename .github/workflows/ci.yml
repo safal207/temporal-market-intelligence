@@ -41,3 +41,9 @@ jobs:
           python -m tmi
           examples/btc_gateway_event.json
           --gateway-recording examples/gateway_quotes.jsonl
+
+      - name: Run verified quote-only ledger example
+        run: >-
+          python -m tmi
+          examples/quote_only_gateway_event.json
+          --gateway-recording examples/quote_only_gateway_ledger.jsonl
