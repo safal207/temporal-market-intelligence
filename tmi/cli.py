@@ -10,8 +10,9 @@ from pathlib import Path
 from typing import Any, cast
 
 from tmi.adapters import RecordedSmartMarketDataGateway
+from tmi.anchor_binding import reverify_sigstore_anchor
 from tmi.models import EventRecord, MarketSnapshot, RealizationResult
-from tmi.preregister import verify_optional_preregistration
+from tmi.preregister import VerifiedPreregistration, verify_optional_preregistration
 from tmi.receipt import build_recording_manifest, event_fingerprint_sha256
 from tmi.scoring import RealizationScorer
 from tmi.service import RealizationService
@@ -69,19 +70,57 @@ def _report(event: EventRecord, result: RealizationResult) -> dict[str, Any]:
 
 def _attach_preregistration(
     report: dict[str, Any],
-    payload: Mapping[str, Any],
-    event: EventRecord,
+    preregistration: VerifiedPreregistration | None,
 ) -> None:
-    verified = verify_optional_preregistration(payload, event)
-    if verified is not None:
-        report["preregistration"] = verified.as_dict()
+    if preregistration is not None:
+        report["preregistration"] = preregistration.as_dict()
 
 
-def analyze_file(path: Path) -> dict[str, Any]:
+def _reverify_external_anchor(
+    preregistration: VerifiedPreregistration | None,
+    anchor_payload: Path | None,
+    anchor_bundle: Path | None,
+    *,
+    cosign_binary: str,
+) -> None:
+    expected = None if preregistration is None else preregistration.external_anchor
+    if expected is None:
+        if anchor_payload is not None or anchor_bundle is not None:
+            raise ValueError(
+                "anchor files require an externally anchored preregistration"
+            )
+        return
+    if anchor_payload is None or anchor_bundle is None:
+        raise ValueError(
+            "externally anchored preregistration requires --anchor-payload and "
+            "--anchor-bundle"
+        )
+    reverify_sigstore_anchor(
+        expected,
+        anchor_payload,
+        anchor_bundle,
+        cosign_binary=cosign_binary,
+    )
+
+
+def analyze_file(
+    path: Path,
+    *,
+    anchor_payload: Path | None = None,
+    anchor_bundle: Path | None = None,
+    cosign_binary: str = "cosign",
+) -> dict[str, Any]:
     """Analyze one self-contained JSON fixture."""
 
     payload = _read_object(path)
     event = EventRecord.from_mapping(_mapping(payload, "event"))
+    preregistration = verify_optional_preregistration(payload, event)
+    _reverify_external_anchor(
+        preregistration,
+        anchor_payload,
+        anchor_bundle,
+        cosign_binary=cosign_binary,
+    )
     before = MarketSnapshot.from_mapping(_mapping(payload, "before"))
     after = MarketSnapshot.from_mapping(_mapping(payload, "after"))
     baseline_volume = float(payload["baseline_volume"])
@@ -95,16 +134,29 @@ def analyze_file(path: Path) -> dict[str, Any]:
         pre_after=_optional_snapshot(payload, "pre_after"),
     )
     report = _report(event, result)
-    _attach_preregistration(report, payload, event)
+    _attach_preregistration(report, preregistration)
     return report
 
 
-def analyze_gateway_recording(event_path: Path, recording_path: Path) -> dict[str, Any]:
+def analyze_gateway_recording(
+    event_path: Path,
+    recording_path: Path,
+    *,
+    anchor_payload: Path | None = None,
+    anchor_bundle: Path | None = None,
+    cosign_binary: str = "cosign",
+) -> dict[str, Any]:
     """Evaluate an event against verified Smart Market Data Gateway JSONL."""
 
     payload = _read_object(event_path)
     event = _event_from_payload(payload)
     preregistration = verify_optional_preregistration(payload, event)
+    _reverify_external_anchor(
+        preregistration,
+        anchor_payload,
+        anchor_bundle,
+        cosign_binary=cosign_binary,
+    )
     gateway = RecordedSmartMarketDataGateway.from_jsonl(recording_path)
     manifest = build_recording_manifest(
         recording_path,
@@ -113,8 +165,7 @@ def analyze_gateway_recording(event_path: Path, recording_path: Path) -> dict[st
     result = RealizationService().evaluate(event, gateway)
     report = _report(event, result)
     report["recording_manifest"] = manifest.as_dict()
-    if preregistration is not None:
-        report["preregistration"] = preregistration.as_dict()
+    _attach_preregistration(report, preregistration)
     return report
 
 
@@ -138,6 +189,21 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Write the complete replay receipt as a new private JSON file under recordings/",
     )
+    parser.add_argument(
+        "--anchor-payload",
+        type=Path,
+        help="Minimal Sigstore anchor payload for an externally anchored event",
+    )
+    parser.add_argument(
+        "--anchor-bundle",
+        type=Path,
+        help="Sigstore bundle to reverify before scoring an externally anchored event",
+    )
+    parser.add_argument(
+        "--cosign-binary",
+        default="cosign",
+        help="Cosign executable used for anchor re-verification",
+    )
     return parser
 
 
@@ -147,9 +213,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.gateway_recording is None:
             if args.receipt_output is not None:
                 raise ValueError("--receipt-output requires --gateway-recording")
-            report = analyze_file(args.input)
+            report = analyze_file(
+                args.input,
+                anchor_payload=args.anchor_payload,
+                anchor_bundle=args.anchor_bundle,
+                cosign_binary=args.cosign_binary,
+            )
         else:
-            report = analyze_gateway_recording(args.input, args.gateway_recording)
+            report = analyze_gateway_recording(
+                args.input,
+                args.gateway_recording,
+                anchor_payload=args.anchor_payload,
+                anchor_bundle=args.anchor_bundle,
+                cosign_binary=args.cosign_binary,
+            )
             if args.receipt_output is not None:
                 _write_private_receipt(args.receipt_output, report)
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
