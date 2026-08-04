@@ -96,20 +96,25 @@ class EventRecord:
 
 @dataclass(frozen=True, slots=True)
 class MarketSnapshot:
-    """Normalized market state at a specific time."""
+    """Normalized market state at a specific time.
+
+    Optional evidence uses ``None`` for unavailable data. Numeric zero is retained as
+    an observed value and must never be interpreted as missing evidence.
+    """
 
     timestamp: datetime
     price: float
-    volume: float
-    buy_volume: float = 0.0
-    sell_volume: float = 0.0
-    bid_depth: float = 0.0
-    ask_depth: float = 0.0
-    spread_bps: float = 0.0
+    volume: float | None = None
+    buy_volume: float | None = None
+    sell_volume: float | None = None
+    bid_depth: float | None = None
+    ask_depth: float | None = None
+    spread_bps: float | None = None
 
     def __post_init__(self) -> None:
-        numeric_values = (
-            self.price,
+        if self.price <= 0:
+            raise ValueError("price must be greater than zero")
+        optional_values = (
             self.volume,
             self.buy_volume,
             self.sell_volume,
@@ -117,22 +122,31 @@ class MarketSnapshot:
             self.ask_depth,
             self.spread_bps,
         )
-        if any(value < 0 for value in numeric_values):
+        if any(value is not None and value < 0 for value in optional_values):
             raise ValueError("market snapshot values must not be negative")
-        if self.price == 0:
-            raise ValueError("price must be greater than zero")
+        if (self.buy_volume is None) is not (self.sell_volume is None):
+            raise ValueError("buy_volume and sell_volume must be provided together")
+        if (self.bid_depth is None) is not (self.ask_depth is None):
+            raise ValueError("bid_depth and ask_depth must be provided together")
+        if (
+            self.volume is not None
+            and self.buy_volume is not None
+            and self.sell_volume is not None
+            and self.buy_volume + self.sell_volume > self.volume
+        ):
+            raise ValueError("classified flow must not exceed total volume")
 
     @classmethod
     def from_mapping(cls, data: Mapping[str, Any]) -> MarketSnapshot:
         return cls(
             timestamp=datetime.fromisoformat(str(data["timestamp"])),
             price=float(data["price"]),
-            volume=float(data["volume"]),
-            buy_volume=float(data.get("buy_volume", 0.0)),
-            sell_volume=float(data.get("sell_volume", 0.0)),
-            bid_depth=float(data.get("bid_depth", 0.0)),
-            ask_depth=float(data.get("ask_depth", 0.0)),
-            spread_bps=float(data.get("spread_bps", 0.0)),
+            volume=_optional_float(data, "volume"),
+            buy_volume=_optional_float(data, "buy_volume"),
+            sell_volume=_optional_float(data, "sell_volume"),
+            bid_depth=_optional_float(data, "bid_depth"),
+            ask_depth=_optional_float(data, "ask_depth"),
+            spread_bps=_optional_float(data, "spread_bps"),
         )
 
 
@@ -148,3 +162,8 @@ class RealizationResult:
     def __post_init__(self) -> None:
         if not 0.0 <= self.score <= 1.0:
             raise ValueError("score must be between 0 and 1")
+
+
+def _optional_float(data: Mapping[str, Any], key: str) -> float | None:
+    value = data.get(key)
+    return None if value is None else float(value)
