@@ -56,6 +56,8 @@ def ratio(value: float, baseline: float) -> float:
 def aggressive_sell_ratio(snapshot: MarketSnapshot) -> float:
     """Share of reported aggressive volume executed by sellers."""
 
+    if snapshot.buy_volume is None or snapshot.sell_volume is None:
+        return 0.5
     total = snapshot.buy_volume + snapshot.sell_volume
     if total == 0:
         return 0.5
@@ -65,6 +67,8 @@ def aggressive_sell_ratio(snapshot: MarketSnapshot) -> float:
 def order_book_imbalance(snapshot: MarketSnapshot) -> float:
     """Top-level depth imbalance in the interval [-1, 1]."""
 
+    if snapshot.bid_depth is None or snapshot.ask_depth is None:
+        return 0.0
     total = snapshot.bid_depth + snapshot.ask_depth
     if total == 0:
         return 0.0
@@ -81,17 +85,21 @@ def calculate_market_features(
     if after.timestamp <= before.timestamp:
         raise ValueError("after snapshot must be later than before snapshot")
 
-    volume_available = baseline_volume is not None and baseline_volume > 0 and after.volume > 0
-    aggressive_flow_available = after.buy_volume + after.sell_volume > 0
-    order_book_available = after.bid_depth + after.ask_depth > 0
-    spread_available = before.spread_bps > 0 and after.spread_bps > 0
+    volume_available = baseline_volume is not None and baseline_volume > 0 and after.volume is not None
+    aggressive_flow_available = after.buy_volume is not None and after.sell_volume is not None
+    order_book_available = after.bid_depth is not None and after.ask_depth is not None
+    spread_available = (
+        before.spread_bps is not None
+        and after.spread_bps is not None
+        and before.spread_bps > 0
+    )
 
     relative_volume = 0.0
-    if volume_available and baseline_volume is not None:
+    if volume_available and baseline_volume is not None and after.volume is not None:
         relative_volume = ratio(after.volume, baseline_volume)
 
     spread_change_ratio = 1.0
-    if spread_available:
+    if spread_available and before.spread_bps is not None and after.spread_bps is not None:
         spread_change_ratio = ratio(after.spread_bps, before.spread_bps)
 
     return MarketFeatures(
