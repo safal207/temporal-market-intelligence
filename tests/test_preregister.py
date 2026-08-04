@@ -126,8 +126,6 @@ def test_cli_create_and_finalize_write_private_new_files(tmp_path: Path) -> None
                 "down",
                 "--horizon-minutes",
                 "30",
-                "--scheduled-event-at",
-                "2026-08-05T17:00:00Z",
                 "--output",
                 str(commitment_path),
             ]
