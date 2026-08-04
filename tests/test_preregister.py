@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 import stat
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from tmi.models import Direction, EventRecord
 from tmi.preregister import (
+    HypothesisCommitment,
     create_commitment,
     finalize_commitment,
     load_commitment,
@@ -22,7 +23,7 @@ OCCURRED_AT = datetime(2026, 8, 4, 17, 0, 5, tzinfo=UTC)
 PUBLISHED_AT = datetime(2026, 8, 4, 17, 0, 8, tzinfo=UTC)
 
 
-def commitment():
+def commitment() -> HypothesisCommitment:
     return create_commitment(
         event_id="btc-cpi-001",
         headline="Scheduled macro release",
@@ -137,8 +138,8 @@ def test_cli_create_and_finalize_write_private_new_files(tmp_path: Path) -> None
 
     payload = json.loads(commitment_path.read_text(encoding="utf-8"))
     registered_at = datetime.fromisoformat(payload["registered_at"])
-    occurred_at = registered_at.replace(day=registered_at.day + 1)
-    published_at = occurred_at.replace(second=occurred_at.second + 1)
+    occurred_at = registered_at + timedelta(days=1)
+    published_at = occurred_at + timedelta(seconds=1)
 
     assert (
         main(
