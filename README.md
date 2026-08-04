@@ -85,7 +85,9 @@ python -m tmi.preregister create \
 
 The commitment fixes the event identity, headline, source, asset, direction, horizon, threshold, registration time, and optional scheduled-event time under one canonical SHA-256 digest. The command creates a new file with mode `0600` and never overwrites an existing commitment.
 
-After the event occurs, finalize it without changing the committed hypothesis:
+A local timestamp is useful audit evidence but is not an independently trusted timestamp. TMI can publish only the commitment digest through a privacy-minimized Sigstore/Cosign anchor. See `docs/sigstore-anchor.md` for the complete workflow.
+
+After the event occurs, finalize it without changing the committed hypothesis. For an externally anchored commitment, finalization re-runs Cosign against the original payload and bundle:
 
 ```bash
 python -m tmi.preregister finalize \
@@ -93,31 +95,38 @@ python -m tmi.preregister finalize \
   --occurred-at 2026-08-05T12:30:02Z \
   --published-at 2026-08-05T12:30:04Z \
   --source-confidence 0.98 \
+  --anchor-payload anchors/btc-cpi-001.anchor.json \
+  --anchor-bundle anchors/btc-cpi-001.sigstore.json \
+  --certificate-identity researcher@example.com \
+  --certificate-oidc-issuer https://accounts.example.com \
   --output events/btc-cpi-001.event.json
 ```
 
-Finalization verifies the commitment hash, rejects an event timestamp before registration, and carries the verified commitment metadata into the event JSON. TMI verifies that block again before scoring and binds it into the replay receipt.
-
-The built-in registration time comes from the local system clock. A local timestamp and SHA-256 digest are not an independent trusted timestamp. For stronger evidence, publish or anchor the commitment hash in an external append-only system before the event; the repository does not claim that this has happened unless separately verified.
+Finalization verifies the commitment hash, rejects an event timestamp before registration, verifies the Sigstore proof when supplied, and embeds only safe anchor metadata. A boolean `external_timestamp_verified=true` is rejected unless a complete verified anchor contract is present.
 
 ### Private replay receipt
 
 Prepare the event JSON before reviewing the captured market response. TMI will not generate a post-hoc hypothesis from the recording.
 
-After a private gateway capture, verify the ledger, run the deterministic analysis, and write one local replay receipt:
+For an externally anchored event, replay requires the original anchor payload and bundle and verifies them again before market evidence is loaded or scored:
 
 ```bash
 python -m tmi \
   events/btc-cpi-001.event.json \
   --gateway-recording recordings/coinbase-btc-usd.jsonl \
+  --anchor-payload anchors/btc-cpi-001.anchor.json \
+  --anchor-bundle anchors/btc-cpi-001.sigstore.json \
   --receipt-output recordings/coinbase-btc-usd.receipt.json
 ```
 
-The receipt binds the result to three deterministic commitments when preregistration is present:
+The receipt binds the result to four deterministic commitments when an external anchor is present:
 
 - `preregistration.commitment_hash_sha256` commits to the hypothesis fixed before observation;
+- `preregistration.external_anchor` records the exact identity, issuer, anchor-payload hash, and bundle hash reverified before scoring;
 - `event_fingerprint_sha256` commits to the finalized normalized event and expected reaction;
 - `recording_manifest.evidence_fingerprint_sha256` commits to the verified ledger head, or to the complete file hash for a legacy recording.
+
+TMI rejects a missing bundle, a different valid bundle, a different identity or issuer, a changed anchor payload, and any reverified fingerprint that differs from the metadata embedded during finalization.
 
 The embedded recording manifest contains only coverage and identity metadata: record counts, symbols, providers, time range, schema versions, capabilities, evidence semantics, session IDs, file size, and the evidence fingerprint. It deliberately excludes prices, volumes, order-book values, and calculated features.
 
@@ -156,14 +165,14 @@ This MVP:
 - does not use an LLM in the scoring path;
 - does not treat missing market layers as zero-valued evidence;
 - does not treat synthetic mock evidence as market alpha;
-- does not treat a local hash chain or local preregistration time as a digital signature or trusted external timestamp.
+- does not claim that a valid external timestamp proves a correct hypothesis or causal market impact.
 
 Its narrow goal is to make event-driven market hypotheses explicit, testable, and reproducible.
 
 ## Next milestones
 
-1. Run the first private Coinbase capture against a genuinely pre-registered event and retain its local replay receipt.
-2. Add an external append-only anchor for preregistration and ledger-head commitments.
+1. Run the first private Coinbase capture against a genuinely preregistered and externally anchored event.
+2. Anchor or sign the market-evidence ledger head as a second independent commitment.
 3. Add a cross-repository contract fixture generated directly by the released gateway package.
 4. Represent event windows as time series rather than two snapshots.
 5. Calculate abnormal return against market and sector baselines.
