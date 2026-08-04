@@ -35,3 +35,9 @@ jobs:
 
       - name: Run deterministic example
         run: python -m tmi examples/btc_event.json
+
+      - name: Run gateway recording example
+        run: >-
+          python -m tmi
+          examples/btc_gateway_event.json
+          --gateway-recording examples/gateway_quotes.jsonl
