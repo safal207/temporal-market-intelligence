@@ -39,7 +39,7 @@ Expected output is a JSON report containing the verdict, score, reasons, and cal
 
 ## Smart Market Data Gateway integration
 
-The existing gateway provides latest REST quotes and a normalized live WebSocket stream. It does not yet promise arbitrary historical snapshots, so TMI does not invent a historical endpoint. The first integration consumes a reproducible JSONL recording of normalized gateway quote events.
+The gateway provides latest REST quotes and a normalized live WebSocket stream. It does not promise arbitrary historical snapshots, so TMI does not invent a historical endpoint. The integration consumes a reproducible JSONL recording of normalized gateway quote events.
 
 ```bash
 python -m tmi \
@@ -54,14 +54,25 @@ The adapter:
 - derives midpoint price when only bid and ask are present;
 - calculates spread in basis points when needed;
 - selects the nearest point-in-time quote within a strict tolerance;
-- calculates pre-event baseline volume from comparable recorded intervals;
-- rejects crossed books, missing timestamps, stale evidence, and absent baseline volume;
+- calculates pre-event baseline volume when comparable volume evidence exists;
+- supports quote-only replay without inventing missing volume, trade flow, or order-book depth;
 - automatically verifies the Smart Market Data Gateway SHA-256 evidence ledger when ledger metadata is present;
 - rejects altered rows, broken chain links, non-contiguous indexes, invalid provenance, and files that mix legacy and ledger rows.
 
 Legacy JSONL recordings without ledger metadata remain supported for existing fixtures and migration. Once any ledger field is present, every row must belong to one valid chain; TMI fails closed before market scoring if integrity verification fails.
 
-This gives us a real integration boundary now while preserving deterministic replay for backtests and investor-facing evidence.
+### Evidence availability
+
+Every result reports explicit numeric availability flags:
+
+- `volume_available`;
+- `aggressive_flow_available`;
+- `order_book_available`;
+- `spread_available`.
+
+Unavailable evidence contributes no score and produces a human-readable omission reason. A live Level-1 quote recording containing only price and bid/ask can therefore support a price-and-spread assessment, but it cannot masquerade as volume or order-flow confirmation. In the normal quote-only case, aligned price evidence is limited to `PARTIALLY_CONFIRMED` rather than being promoted to a fully corroborated result.
+
+This gives us a real integration boundary while preserving deterministic replay for backtests and investor-facing evidence.
 
 ## Repository boundaries
 
@@ -83,19 +94,21 @@ This MVP:
 - does not prove causality from observational market data;
 - does not hide uncertain or negative outcomes;
 - does not use an LLM in the scoring path;
+- does not treat missing market layers as zero-valued evidence;
 - does not treat a local hash chain as a digital signature or external timestamp.
 
 Its narrow goal is to make event-driven market hypotheses explicit, testable, and reproducible.
 
 ## Next milestones
 
-1. Capture and replay the first real gateway WebSocket evidence ledger.
-2. Anchor or sign ledger head hashes outside the recording file.
-3. Represent event windows as time series rather than two snapshots.
-4. Calculate abnormal return against market and sector baselines.
-5. Store 100-200 timestamped event records.
-6. Compare TMI with sentiment-only and price-only baselines.
-7. Add confounder detection and walk-forward evaluation.
+1. Extend the gateway evidence schema with licensed volume, aggressive-flow, and order-book-depth fields.
+2. Capture a longer real-provider evidence ledger under an approved data-rights profile.
+3. Anchor or sign ledger head hashes outside the recording file.
+4. Represent event windows as time series rather than two snapshots.
+5. Calculate abnormal return against market and sector baselines.
+6. Store 100-200 timestamped event records.
+7. Compare TMI with sentiment-only and price-only baselines.
+8. Add confounder detection and walk-forward evaluation.
 
 ## License
 
