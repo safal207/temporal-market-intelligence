@@ -228,7 +228,7 @@ def _optional_number(data: Mapping[str, Any], key: str) -> float | None:
     return _number(value, key)
 
 
-def _number(value: object, key: str) -> float:
+def _number(value: Any, key: str) -> float:
     try:
         number = float(value)
     except (TypeError, ValueError) as exc:
