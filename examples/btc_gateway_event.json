@@ -1,0 +1,16 @@
+{
+  "event": {
+    "event_id": "btc-policy-shock-001",
+    "headline": "Unexpected policy announcement pressures risk assets",
+    "source": "official-source",
+    "occurred_at": "2026-08-01T12:00:00+00:00",
+    "published_at": "2026-08-01T12:00:00+00:00",
+    "source_confidence": 0.98,
+    "reaction": {
+      "asset": "BTC/USDT",
+      "direction": "down",
+      "horizon_minutes": 30,
+      "minimum_move_pct": 0.5
+    }
+  }
+}
