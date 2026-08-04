@@ -30,6 +30,8 @@ def ledger_row(
     row: dict[str, Any] = {
         "symbol": symbol,
         "price": price,
+        "bid": price - 0.01,
+        "ask": price + 0.01,
         "provider_timestamp": f"2026-08-01T12:00:{index:02d}Z",
         "provider": "mock",
         "sequence": index + 1,
@@ -102,6 +104,41 @@ def test_recorded_gateway_verifies_evidence_ledger(tmp_path: Path) -> None:
         datetime(2026, 8, 1, 12, 0, 1, tzinfo=UTC),
     )
     assert snapshot.price == 101.0
+
+
+def test_service_replays_quote_only_ledger_without_inventing_volume(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "quote-only-ledger.jsonl"
+    first = ledger_row(index=0, previous_hash=GENESIS_HASH, price=100.0)
+    second = ledger_row(index=1, previous_hash=first["record_hash"], price=101.0)
+    write_rows(path, [first, second])
+
+    gateway = RecordedSmartMarketDataGateway.from_jsonl(path)
+    event = EventRecord(
+        event_id="quote-only-up-001",
+        headline="Pre-registered upward quote-only test event",
+        source="test-source",
+        occurred_at=PUBLISHED_AT,
+        published_at=PUBLISHED_AT,
+        reaction=ExpectedReaction(
+            asset="BTC/USDT",
+            direction=Direction.UP,
+            horizon_minutes=1,
+            minimum_move_pct=0.5,
+        ),
+    )
+
+    result = RealizationService().evaluate(event, gateway)
+
+    assert result.verdict is Verdict.PARTIALLY_CONFIRMED
+    assert result.features["price_change_pct"] == 1.0
+    assert result.features["volume_available"] == 0.0
+    assert result.features["aggressive_flow_available"] == 0.0
+    assert result.features["order_book_available"] == 0.0
+    assert result.features["spread_available"] == 1.0
+    assert result.features["relative_volume"] == 0.0
+    assert any("Volume baseline unavailable" in reason for reason in result.reasons)
 
 
 def test_recorded_gateway_rejects_tampered_ledger(tmp_path: Path) -> None:
@@ -181,3 +218,6 @@ def test_service_evaluates_recorded_gateway_vertical_slice() -> None:
     assert result.verdict is Verdict.CONFIRMED
     assert result.score >= 0.9
     assert result.features["relative_volume"] > 2.0
+    assert result.features["volume_available"] == 1.0
+    assert result.features["aggressive_flow_available"] == 1.0
+    assert result.features["order_book_available"] == 1.0
