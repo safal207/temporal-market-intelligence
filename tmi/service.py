@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from tmi.gateway import MarketDataGateway
-from tmi.models import EventRecord, RealizationResult
+from tmi.models import EventRecord, MarketSnapshot, RealizationResult
 from tmi.scoring import RealizationScorer
 
 
@@ -43,7 +43,7 @@ class RealizationService:
         *,
         window: EvaluationWindow | None = None,
     ) -> RealizationResult:
-        """Resolve event-time snapshots and produce a deterministic verdict."""
+        """Resolve required snapshots and omit unavailable optional evidence."""
 
         policy = window or EvaluationWindow()
         asset = event.reaction.asset
@@ -57,15 +57,18 @@ class RealizationService:
             asset,
             published_at + timedelta(minutes=event.reaction.horizon_minutes),
         )
-        pre_before = gateway.snapshot(
+        pre_before = self._optional_snapshot(
+            gateway,
             asset,
             published_at - timedelta(minutes=policy.priced_in_start_minutes),
         )
-        pre_after = gateway.snapshot(
+        pre_after = self._optional_snapshot(
+            gateway,
             asset,
             published_at - timedelta(minutes=policy.priced_in_end_minutes),
         )
-        baseline_volume = gateway.baseline_volume(
+        baseline_volume = self._optional_baseline(
+            gateway,
             asset,
             before=published_at,
             lookback_minutes=policy.baseline_lookback_minutes,
@@ -79,3 +82,31 @@ class RealizationService:
             pre_before=pre_before,
             pre_after=pre_after,
         )
+
+    @staticmethod
+    def _optional_snapshot(
+        gateway: MarketDataGateway,
+        asset: str,
+        at: datetime,
+    ) -> MarketSnapshot | None:
+        try:
+            return gateway.snapshot(asset, at)
+        except ValueError:
+            return None
+
+    @staticmethod
+    def _optional_baseline(
+        gateway: MarketDataGateway,
+        asset: str,
+        *,
+        before: datetime,
+        lookback_minutes: int,
+    ) -> float | None:
+        try:
+            return gateway.baseline_volume(
+                asset,
+                before=before,
+                lookback_minutes=lookback_minutes,
+            )
+        except ValueError:
+            return None
