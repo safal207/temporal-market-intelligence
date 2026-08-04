@@ -7,15 +7,37 @@ recording of those normalized quote events rather than inventing a historical AP
 
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+import hashlib
+import hmac
+import json
 from pathlib import Path
 from statistics import fmean
 from typing import Any, cast
 
 from tmi.models import MarketSnapshot
+
+LEDGER_VERSION = "1.0"
+LEDGER_ALGORITHM = "sha256"
+GENESIS_HASH = "0" * 64
+PROVENANCE_SYSTEM = "smart-market-data-gateway"
+PROVENANCE_COMPONENT = "websocket-jsonl-recorder"
+PROVENANCE_TRANSPORT = "websocket"
+LEDGER_FIELDS = frozenset(
+    {
+        "ledger_version",
+        "ledger_algorithm",
+        "ledger_index",
+        "previous_record_hash",
+        "record_hash",
+        "recorder_session_id",
+        "provenance_system",
+        "provenance_component",
+        "provenance_transport",
+    }
+)
 
 
 class GatewayContractError(ValueError):
@@ -133,9 +155,9 @@ class RecordedSmartMarketDataGateway:
         *,
         max_distance_seconds: float = 90.0,
     ) -> RecordedSmartMarketDataGateway:
-        """Load normalized gateway events from a UTF-8 JSONL recording."""
+        """Load normalized gateway events and verify a ledger when metadata is present."""
 
-        quotes: list[SmartMarketQuote] = []
+        rows: list[Mapping[str, Any]] = []
         for line_number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             if not line.strip():
                 continue
@@ -149,9 +171,13 @@ class RecordedSmartMarketDataGateway:
                 raise GatewayContractError(
                     f"gateway recording line {line_number} must be a JSON object"
                 )
-            quotes.append(SmartMarketQuote.from_mapping(cast(Mapping[str, Any], raw)))
-        if not quotes:
+            rows.append(cast(Mapping[str, Any], raw))
+
+        if not rows:
             raise GatewayContractError("gateway recording contains no quote events")
+
+        _verify_optional_evidence_ledger(rows)
+        quotes = [SmartMarketQuote.from_mapping(row) for row in rows]
         return cls(quotes, max_distance_seconds=max_distance_seconds)
 
     def snapshot(self, asset: str, at: datetime) -> MarketSnapshot:
@@ -195,6 +221,99 @@ class RecordedSmartMarketDataGateway:
                 f"no positive baseline volume for {symbol} in lookback window"
             )
         return fmean(volumes)
+
+
+def _verify_optional_evidence_ledger(rows: Sequence[Mapping[str, Any]]) -> None:
+    ledger_presence = [bool(LEDGER_FIELDS.intersection(row)) for row in rows]
+    if not any(ledger_presence):
+        return
+    if not all(ledger_presence):
+        raise GatewayContractError(
+            "gateway recording mixes legacy rows with evidence-ledger rows"
+        )
+
+    expected_previous_hash = GENESIS_HASH
+    for expected_index, row in enumerate(rows):
+        line_number = expected_index + 1
+        missing = LEDGER_FIELDS.difference(row)
+        if missing:
+            names = ", ".join(sorted(missing))
+            raise GatewayContractError(
+                f"gateway ledger line {line_number} is missing fields: {names}"
+            )
+        if row.get("ledger_version") != LEDGER_VERSION:
+            raise GatewayContractError(
+                f"gateway ledger line {line_number} has unsupported ledger_version"
+            )
+        if row.get("ledger_algorithm") != LEDGER_ALGORITHM:
+            raise GatewayContractError(
+                f"gateway ledger line {line_number} has unsupported ledger_algorithm"
+            )
+        if row.get("ledger_index") != expected_index:
+            raise GatewayContractError(
+                f"gateway ledger line {line_number} has non-contiguous ledger_index"
+            )
+        if row.get("provenance_system") != PROVENANCE_SYSTEM:
+            raise GatewayContractError(
+                f"gateway ledger line {line_number} has invalid provenance_system"
+            )
+        if row.get("provenance_component") != PROVENANCE_COMPONENT:
+            raise GatewayContractError(
+                f"gateway ledger line {line_number} has invalid provenance_component"
+            )
+        if row.get("provenance_transport") != PROVENANCE_TRANSPORT:
+            raise GatewayContractError(
+                f"gateway ledger line {line_number} has invalid provenance_transport"
+            )
+
+        session_id = row.get("recorder_session_id")
+        if not isinstance(session_id, str) or not session_id.strip():
+            raise GatewayContractError(
+                f"gateway ledger line {line_number} has invalid recorder_session_id"
+            )
+
+        previous_hash = _sha256_value(
+            row.get("previous_record_hash"),
+            field="previous_record_hash",
+            line_number=line_number,
+        )
+        if not hmac.compare_digest(previous_hash, expected_previous_hash):
+            raise GatewayContractError(
+                f"gateway ledger line {line_number} breaks previous_record_hash linkage"
+            )
+
+        stored_hash = _sha256_value(
+            row.get("record_hash"),
+            field="record_hash",
+            line_number=line_number,
+        )
+        canonical = dict(row)
+        canonical.pop("record_hash", None)
+        computed_hash = hashlib.sha256(
+            json.dumps(
+                canonical,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            ).encode("utf-8")
+        ).hexdigest()
+        if not hmac.compare_digest(stored_hash, computed_hash):
+            raise GatewayContractError(
+                f"gateway ledger line {line_number} has record_hash mismatch"
+            )
+        expected_previous_hash = stored_hash
+
+
+def _sha256_value(value: object, *, field: str, line_number: int) -> str:
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise GatewayContractError(
+            f"gateway ledger line {line_number} has invalid {field}"
+        )
+    return value
 
 
 def _unwrap_payload(payload: Mapping[str, Any]) -> Mapping[str, Any]:
