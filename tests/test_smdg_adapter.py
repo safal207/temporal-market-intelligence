@@ -13,7 +13,6 @@ from tmi.adapters import (
 )
 from tmi.service import RealizationService
 
-
 PUBLISHED_AT = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
 
 
