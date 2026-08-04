@@ -36,12 +36,12 @@ def percentage_change(start: float, end: float) -> float:
 
 
 def ratio(value: float, baseline: float) -> float:
-    """Return a safe non-negative ratio."""
+    """Return a finite ratio for a strictly positive baseline."""
 
-    if baseline < 0 or value < 0:
-        raise ValueError("ratio values must not be negative")
-    if baseline == 0:
-        return 0.0 if value == 0 else float("inf")
+    if value < 0:
+        raise ValueError("ratio value must not be negative")
+    if baseline <= 0:
+        raise ValueError("ratio baseline must be greater than zero")
     return value / baseline
 
 
@@ -73,10 +73,14 @@ def calculate_market_features(
     if after.timestamp <= before.timestamp:
         raise ValueError("after snapshot must be later than before snapshot")
 
+    spread_change_ratio = 1.0
+    if before.spread_bps > 0:
+        spread_change_ratio = ratio(after.spread_bps, before.spread_bps)
+
     return MarketFeatures(
         price_change_pct=percentage_change(before.price, after.price),
         relative_volume=ratio(after.volume, baseline_volume),
         aggressive_sell_ratio=aggressive_sell_ratio(after),
         order_book_imbalance=order_book_imbalance(after),
-        spread_change_ratio=ratio(after.spread_bps, before.spread_bps),
+        spread_change_ratio=spread_change_ratio,
     )
