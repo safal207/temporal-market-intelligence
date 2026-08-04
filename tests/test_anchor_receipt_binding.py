@@ -15,9 +15,9 @@ from tmi.preregister import (
     HypothesisCommitment,
     create_commitment,
     finalize_commitment,
-    main as preregister_main,
     verify_optional_preregistration,
 )
+from tmi.preregister import main as preregister_main
 
 IDENTITY = "researcher@example.com"
 ISSUER = "https://accounts.example.com"
