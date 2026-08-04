@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 
-from tmi import anchor
 from tmi.anchor import (
     SigstoreAnchorVerification,
     build_anchor_payload,
@@ -59,7 +58,10 @@ def test_verify_sigstore_anchor_invokes_cosign_and_fingerprints(
     anchor_path = tmp_path / "anchors" / "event.anchor.json"
     bundle_path = tmp_path / "anchors" / "event.sigstore.json"
     prepare_anchor_payload(COMMITMENT_HASH, anchor_path)
-    bundle_path.write_text('{"mediaType":"application/vnd.dev.sigstore.bundle+json"}\n')
+    bundle_path.write_text(
+        '{"mediaType":"application/vnd.dev.sigstore.bundle+json"}\n',
+        encoding="utf-8",
+    )
     observed: list[str] = []
 
     def fake_run(
@@ -75,7 +77,7 @@ def test_verify_sigstore_anchor_invokes_cosign_and_fingerprints(
         observed.extend(command)
         return subprocess.CompletedProcess(command, 0, "Verified OK\n", "")
 
-    monkeypatch.setattr(anchor.subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "run", fake_run)
 
     verified = verify_sigstore_anchor(
         COMMITMENT_HASH,
@@ -113,7 +115,7 @@ def test_verify_rejects_payload_mismatch_before_cosign(
     def fail_run(*args: object, **kwargs: object) -> subprocess.CompletedProcess[str]:
         raise AssertionError("cosign must not run for a mismatched payload")
 
-    monkeypatch.setattr(anchor.subprocess, "run", fail_run)
+    monkeypatch.setattr(subprocess, "run", fail_run)
 
     with pytest.raises(ValueError, match="does not match"):
         verify_sigstore_anchor(
@@ -143,7 +145,7 @@ def test_verify_rejects_failed_cosign(
     ) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(command, 1, "", "invalid inclusion proof")
 
-    monkeypatch.setattr(anchor.subprocess, "run", fake_run)
+    monkeypatch.setattr(subprocess, "run", fake_run)
 
     with pytest.raises(ValueError, match="invalid inclusion proof"):
         verify_sigstore_anchor(
