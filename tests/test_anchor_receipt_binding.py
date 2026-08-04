@@ -12,6 +12,7 @@ from tmi.anchor import SigstoreAnchorVerification, prepare_anchor_payload
 from tmi.cli import analyze_gateway_recording
 from tmi.models import Direction, EventRecord
 from tmi.preregister import (
+    HypothesisCommitment,
     create_commitment,
     finalize_commitment,
     main as preregister_main,
@@ -24,7 +25,7 @@ REGISTERED_AT = datetime(2026, 8, 1, 11, 0, tzinfo=UTC)
 OCCURRED_AT = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
 
 
-def commitment():
+def commitment() -> HypothesisCommitment:
     return create_commitment(
         event_id="btc-policy-shock-001",
         headline="Unexpected policy announcement pressures risk assets",
