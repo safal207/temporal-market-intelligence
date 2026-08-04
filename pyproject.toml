@@ -22,6 +22,8 @@ dev = [
 [project.scripts]
 tmi = "tmi.cli:main"
 tmi-anchor = "tmi.anchor:main"
+tmi-evidence-anchor = "tmi.evidence_anchor:main"
+tmi-experiment = "tmi.experiment:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["tmi"]
