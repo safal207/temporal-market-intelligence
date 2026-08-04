@@ -37,12 +37,34 @@ python -m tmi examples/btc_event.json
 
 Expected output is a JSON report containing the verdict, score, reasons, and calculated features.
 
+## Smart Market Data Gateway integration
+
+The existing gateway provides latest REST quotes and a normalized live WebSocket stream. It does not yet promise arbitrary historical snapshots, so TMI does not invent a historical endpoint. The first integration consumes a reproducible JSONL recording of normalized gateway quote events.
+
+```bash
+python -m tmi \
+  examples/btc_gateway_event.json \
+  --gateway-recording examples/gateway_quotes.jsonl
+```
+
+The adapter:
+
+- accepts direct quote objects and `{"data": quote}` wrappers;
+- uses `provider_timestamp`, then `timestamp`, then `received_at`;
+- derives midpoint price when only bid and ask are present;
+- calculates spread in basis points when needed;
+- selects the nearest point-in-time quote within a strict tolerance;
+- calculates pre-event baseline volume from comparable recorded intervals;
+- rejects crossed books, missing timestamps, stale evidence, and absent baseline volume.
+
+This gives us a real integration boundary now while preserving deterministic replay for backtests and investor-facing evidence.
+
 ## Repository boundaries
 
 | System | Responsibility |
 |---|---|
 | `temporal-market-intelligence` | Event hypotheses, market realization scoring, attribution, backtesting |
-| `smart-market-data-gateway` | Reliable normalized market-data delivery |
+| `smart-market-data-gateway` | Reliable normalized market-data delivery and stream recording |
 | `Causal-Memory-Layer` | Optional causal evidence and lineage protocol |
 | `finanalytics-core` | Portfolio-level impact and risk analytics |
 
@@ -62,7 +84,7 @@ Its narrow goal is to make event-driven market hypotheses explicit, testable, an
 
 ## Next milestones
 
-1. Connect the `smart-market-data-gateway` adapter.
+1. Add a gateway WebSocket recorder that writes the normalized JSONL contract.
 2. Add event-study baselines and abnormal returns.
 3. Store 100-200 timestamped event records.
 4. Compare TMI with sentiment-only and price-only baselines.
