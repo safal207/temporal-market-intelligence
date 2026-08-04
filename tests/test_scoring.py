@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from tmi.models import (
+from tmi import (
     Direction,
     EventRecord,
     ExpectedReaction,
     MarketSnapshot,
+    RealizationScorer,
     Verdict,
 )
-from tmi.scoring import RealizationScorer
 
 
 PUBLISHED_AT = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
