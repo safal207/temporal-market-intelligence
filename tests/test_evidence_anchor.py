@@ -4,6 +4,7 @@ import json
 import stat
 import subprocess
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -14,7 +15,7 @@ from tmi.evidence_anchor import (
     prepare_evidence_anchor,
     verify_evidence_anchor,
 )
-from tmi.receipt import build_recording_manifest
+from tmi.receipt import RecordingManifest, build_recording_manifest
 
 IDENTITY = "researcher@example.com"
 ISSUER = "https://accounts.example.com"
@@ -36,7 +37,7 @@ def fake_cosign_success(
     return subprocess.CompletedProcess(command, 0, "Verified OK\n", "")
 
 
-def manifest():
+def manifest() -> RecordingManifest:
     gateway = RecordedSmartMarketDataGateway.from_jsonl(RECORDING)
     return build_recording_manifest(RECORDING, verified_gateway=gateway)
 
@@ -149,7 +150,8 @@ def test_replay_binds_verified_evidence_anchor_into_receipt(
         evidence_certificate_oidc_issuer=ISSUER,
     )
 
-    external = report["recording_manifest"]["external_anchor"]
+    manifest_payload = cast(dict[str, Any], report["recording_manifest"])
+    external = cast(dict[str, Any], manifest_payload["external_anchor"])
     assert report["verdict"] == "confirmed"
     assert external["evidence_fingerprint_sha256"] == manifest().ledger_head_hash
     assert external["certificate_identity"] == IDENTITY
