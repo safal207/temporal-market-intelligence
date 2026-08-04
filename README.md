@@ -84,11 +84,12 @@ Its narrow goal is to make event-driven market hypotheses explicit, testable, an
 
 ## Next milestones
 
-1. Add a gateway WebSocket recorder that writes the normalized JSONL contract.
-2. Add event-study baselines and abnormal returns.
-3. Store 100-200 timestamped event records.
-4. Compare TMI with sentiment-only and price-only baselines.
-5. Add confounder detection and walk-forward evaluation.
+1. Implement a gateway WebSocket recorder producing the normalized JSONL contract.
+2. Represent event windows as time series rather than two snapshots.
+3. Calculate abnormal return against market and sector baselines.
+4. Store 100-200 timestamped event records.
+5. Compare TMI with sentiment-only and price-only baselines.
+6. Add confounder detection and walk-forward evaluation.
 
 ## License
 
