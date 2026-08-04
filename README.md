@@ -66,6 +66,28 @@ The adapter:
 
 Legacy JSONL recordings without ledger metadata remain supported for migration. Once any ledger field is present, every row must belong to one valid chain; TMI fails closed before market scoring if integrity verification fails.
 
+### Private replay receipt
+
+Prepare the event JSON before reviewing the captured market response. TMI will not generate a post-hoc hypothesis from the recording.
+
+After a private gateway capture, verify the ledger, run the deterministic analysis, and write one local replay receipt:
+
+```bash
+python -m tmi \
+  events/pre_registered_event.json \
+  --gateway-recording recordings/coinbase-btc-usd.jsonl \
+  --receipt-output recordings/coinbase-btc-usd.receipt.json
+```
+
+The receipt binds the result to two deterministic commitments:
+
+- `event_fingerprint_sha256` commits to the normalized pre-registered event and expected reaction;
+- `recording_manifest.evidence_fingerprint_sha256` commits to the verified ledger head, or to the complete file hash for a legacy recording.
+
+The embedded recording manifest contains only coverage and identity metadata: record counts, symbols, providers, time range, schema versions, capabilities, evidence semantics, session IDs, file size, and the evidence fingerprint. It deliberately excludes prices, volumes, order-book values, and calculated features.
+
+The complete receipt still contains the analytical result and derived features, so it remains private by default. TMI requires receipt output under `recordings/`, creates the file with mode `0600`, refuses to overwrite an existing receipt, and ignores the directory in Git.
+
 ### Evidence availability
 
 Every result reports explicit numeric availability flags:
@@ -105,7 +127,7 @@ Its narrow goal is to make event-driven market hypotheses explicit, testable, an
 
 ## Next milestones
 
-1. Capture a licensed real-provider evidence ledger with documented volume, flow, and depth mappings.
+1. Run the first private Coinbase capture against a genuinely pre-registered event and retain its local replay receipt.
 2. Add a cross-repository contract fixture generated directly by the released gateway package.
 3. Anchor or sign ledger head hashes outside the recording file.
 4. Represent event windows as time series rather than two snapshots.
