@@ -11,9 +11,10 @@ from typing import Any, cast
 
 from tmi.adapters import RecordedSmartMarketDataGateway
 from tmi.anchor_binding import reverify_sigstore_anchor
+from tmi.evidence_anchor import EvidenceAnchorVerification, verify_evidence_anchor
 from tmi.models import EventRecord, MarketSnapshot, RealizationResult
 from tmi.preregister import VerifiedPreregistration, verify_optional_preregistration
-from tmi.receipt import build_recording_manifest, event_fingerprint_sha256
+from tmi.receipt import RecordingManifest, build_recording_manifest, event_fingerprint_sha256
 from tmi.scoring import RealizationScorer
 from tmi.service import RealizationService
 
@@ -103,6 +104,43 @@ def _reverify_external_anchor(
     )
 
 
+def _verify_optional_evidence_anchor(
+    manifest: RecordingManifest,
+    anchor_payload: Path | None,
+    anchor_bundle: Path | None,
+    certificate_identity: str | None,
+    certificate_oidc_issuer: str | None,
+    *,
+    cosign_binary: str,
+) -> EvidenceAnchorVerification | None:
+    supplied = (
+        anchor_payload,
+        anchor_bundle,
+        certificate_identity,
+        certificate_oidc_issuer,
+    )
+    if not any(value is not None for value in supplied):
+        return None
+    if any(value is None for value in supplied):
+        raise ValueError(
+            "evidence anchoring requires --evidence-anchor-payload, "
+            "--evidence-anchor-bundle, --evidence-certificate-identity, and "
+            "--evidence-certificate-oidc-issuer"
+        )
+    if anchor_payload is None or anchor_bundle is None:
+        raise ValueError("evidence anchor paths are required")
+    if certificate_identity is None or certificate_oidc_issuer is None:
+        raise ValueError("evidence anchor identity and issuer are required")
+    return verify_evidence_anchor(
+        manifest,
+        anchor_payload,
+        anchor_bundle,
+        certificate_identity=certificate_identity,
+        certificate_oidc_issuer=certificate_oidc_issuer,
+        cosign_binary=cosign_binary,
+    )
+
+
 def analyze_file(
     path: Path,
     *,
@@ -144,6 +182,10 @@ def analyze_gateway_recording(
     *,
     anchor_payload: Path | None = None,
     anchor_bundle: Path | None = None,
+    evidence_anchor_payload: Path | None = None,
+    evidence_anchor_bundle: Path | None = None,
+    evidence_certificate_identity: str | None = None,
+    evidence_certificate_oidc_issuer: str | None = None,
     cosign_binary: str = "cosign",
 ) -> dict[str, Any]:
     """Evaluate an event against verified Smart Market Data Gateway JSONL."""
@@ -162,9 +204,20 @@ def analyze_gateway_recording(
         recording_path,
         verified_gateway=gateway,
     )
+    evidence_anchor = _verify_optional_evidence_anchor(
+        manifest,
+        evidence_anchor_payload,
+        evidence_anchor_bundle,
+        evidence_certificate_identity,
+        evidence_certificate_oidc_issuer,
+        cosign_binary=cosign_binary,
+    )
     result = RealizationService().evaluate(event, gateway)
     report = _report(event, result)
-    report["recording_manifest"] = manifest.as_dict()
+    manifest_payload = manifest.as_dict()
+    if evidence_anchor is not None:
+        manifest_payload["external_anchor"] = evidence_anchor.as_dict()
+    report["recording_manifest"] = manifest_payload
     _attach_preregistration(report, preregistration)
     return report
 
@@ -200,6 +253,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Sigstore bundle to reverify before scoring an externally anchored event",
     )
     parser.add_argument(
+        "--evidence-anchor-payload",
+        type=Path,
+        help="Minimal Sigstore payload for the verified market-ledger head",
+    )
+    parser.add_argument(
+        "--evidence-anchor-bundle",
+        type=Path,
+        help="Sigstore bundle for the verified market-ledger head",
+    )
+    parser.add_argument("--evidence-certificate-identity")
+    parser.add_argument("--evidence-certificate-oidc-issuer")
+    parser.add_argument(
         "--cosign-binary",
         default="cosign",
         help="Cosign executable used for anchor re-verification",
@@ -213,6 +278,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.gateway_recording is None:
             if args.receipt_output is not None:
                 raise ValueError("--receipt-output requires --gateway-recording")
+            if args.evidence_anchor_payload is not None:
+                raise ValueError("evidence anchoring requires --gateway-recording")
             report = analyze_file(
                 args.input,
                 anchor_payload=args.anchor_payload,
@@ -225,6 +292,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.gateway_recording,
                 anchor_payload=args.anchor_payload,
                 anchor_bundle=args.anchor_bundle,
+                evidence_anchor_payload=args.evidence_anchor_payload,
+                evidence_anchor_bundle=args.evidence_anchor_bundle,
+                evidence_certificate_identity=args.evidence_certificate_identity,
+                evidence_certificate_oidc_issuer=(
+                    args.evidence_certificate_oidc_issuer
+                ),
                 cosign_binary=args.cosign_binary,
             )
             if args.receipt_output is not None:

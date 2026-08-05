@@ -37,6 +37,19 @@ python -m tmi examples/btc_event.json
 
 Expected output is a JSON report containing the verdict, score, reasons, and calculated features.
 
+## First real experiment
+
+The committed operator plan for the first real experiment targets the BLS Employment Situation release on 7 August 2026:
+
+```bash
+python -m tmi.experiment \
+  experiments/bls-employment-2026-08-07-btc-down.plan.json
+```
+
+Preflight fails closed after the preregistration deadline and prints the exact sequence for hypothesis anchoring, Coinbase capture, market-ledger anchoring, event finalization, and replay. See `docs/first-real-experiment.md`.
+
+The hypothesis is a falsifiable research test, not investment advice. A negative or inconclusive verdict is a valid outcome; integrity and reproducibility define completion.
+
 ## Smart Market Data Gateway integration
 
 The gateway provides latest REST quotes and a normalized live WebSocket stream. It does not promise arbitrary historical snapshots, so TMI does not invent a historical endpoint. The integration consumes reproducible JSONL recordings produced by the gateway recorder.
@@ -104,11 +117,27 @@ python -m tmi.preregister finalize \
 
 Finalization verifies the commitment hash, rejects an event timestamp before registration, verifies the Sigstore proof when supplied, and embeds only safe anchor metadata. A boolean `external_timestamp_verified=true` is rejected unless a complete verified anchor contract is present.
 
+### Market-evidence ledger anchor
+
+After a verified gateway capture, TMI can anchor only the ledger-head digest:
+
+```bash
+python -m tmi.evidence_anchor prepare \
+  recordings/coinbase-btc-usd.jsonl \
+  --output anchors/coinbase-btc-usd.evidence.anchor.json
+
+cosign sign-blob \
+  anchors/coinbase-btc-usd.evidence.anchor.json \
+  --bundle anchors/coinbase-btc-usd.evidence.sigstore.json
+```
+
+The public payload contains the anchor schema, `fingerprint_kind=ledger_head`, and the ledger-head SHA-256. It contains no prices, volumes, trade flow, order-book values, hypothesis text, or verdict. Legacy non-ledger JSONL is rejected for external evidence anchoring.
+
 ### Private replay receipt
 
 Prepare the event JSON before reviewing the captured market response. TMI will not generate a post-hoc hypothesis from the recording.
 
-For an externally anchored event, replay requires the original anchor payload and bundle and verifies them again before market evidence is loaded or scored:
+A dual-anchor replay re-verifies the hypothesis proof and the evidence-ledger proof before scoring:
 
 ```bash
 python -m tmi \
@@ -116,21 +145,27 @@ python -m tmi \
   --gateway-recording recordings/coinbase-btc-usd.jsonl \
   --anchor-payload anchors/btc-cpi-001.anchor.json \
   --anchor-bundle anchors/btc-cpi-001.sigstore.json \
+  --evidence-anchor-payload anchors/coinbase-btc-usd.evidence.anchor.json \
+  --evidence-anchor-bundle anchors/coinbase-btc-usd.evidence.sigstore.json \
+  --evidence-certificate-identity researcher@example.com \
+  --evidence-certificate-oidc-issuer https://accounts.example.com \
   --receipt-output recordings/coinbase-btc-usd.receipt.json
 ```
 
-The receipt binds the result to four deterministic commitments when an external anchor is present:
+The receipt can bind the result to six deterministic commitments:
 
 - `preregistration.commitment_hash_sha256` commits to the hypothesis fixed before observation;
 - `preregistration.external_anchor` records the exact identity, issuer, anchor-payload hash, and bundle hash reverified before scoring;
 - `event_fingerprint_sha256` commits to the finalized normalized event and expected reaction;
-- `recording_manifest.evidence_fingerprint_sha256` commits to the verified ledger head, or to the complete file hash for a legacy recording.
+- `recording_manifest.evidence_fingerprint_sha256` commits to the verified ledger head;
+- `recording_manifest.external_anchor` records the externally verified ledger-head payload and bundle fingerprints;
+- the verdict, reasons, and features are deterministically derived from the bound event and evidence.
 
-TMI rejects a missing bundle, a different valid bundle, a different identity or issuer, a changed anchor payload, and any reverified fingerprint that differs from the metadata embedded during finalization.
+TMI rejects incomplete anchor arguments, a changed payload, a failed signature or inclusion proof, a different hypothesis bundle than the one embedded at finalization, and any evidence payload that differs from the validated ledger head.
 
 The embedded recording manifest contains only coverage and identity metadata: record counts, symbols, providers, time range, schema versions, capabilities, evidence semantics, session IDs, file size, and the evidence fingerprint. It deliberately excludes prices, volumes, order-book values, and calculated features.
 
-The complete receipt still contains the analytical result and derived features, so it remains private by default. TMI requires receipt output under `recordings/`, creates the file with mode `0600`, refuses to overwrite an existing receipt, and ignores the directory in Git.
+The complete receipt still contains the analytical result and derived features, so it remains private by default. TMI requires receipt output under `recordings/`, creates the file with mode `0600`, refuses to overwrite an existing receipt, and ignores `recordings/`, `anchors/`, and `events/` in Git.
 
 ### Evidence availability
 
@@ -171,14 +206,13 @@ Its narrow goal is to make event-driven market hypotheses explicit, testable, an
 
 ## Next milestones
 
-1. Run the first private Coinbase capture against a genuinely preregistered and externally anchored event.
-2. Anchor or sign the market-evidence ledger head as a second independent commitment.
-3. Add a cross-repository contract fixture generated directly by the released gateway package.
-4. Represent event windows as time series rather than two snapshots.
-5. Calculate abnormal return against market and sector baselines.
-6. Store 100-200 timestamped event records.
-7. Compare TMI with sentiment-only and price-only baselines.
-8. Add confounder detection and walk-forward evaluation.
+1. Execute the committed BLS Employment Situation protocol and retain the first private dual-anchor receipt.
+2. Add a cross-repository contract fixture generated directly by the released gateway package.
+3. Represent event windows as time series rather than two snapshots.
+4. Calculate abnormal return against market and sector baselines.
+5. Store 100-200 timestamped event records.
+6. Compare TMI with sentiment-only and price-only baselines.
+7. Add confounder detection and walk-forward evaluation.
 
 ## License
 
