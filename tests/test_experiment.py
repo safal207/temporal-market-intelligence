@@ -31,7 +31,11 @@ def test_first_experiment_plan_is_ready_before_deadline() -> None:
     actions = report["operator_actions"]
     assert len(actions) == 8
     assert "tmi.preregister create" in actions[0]["command"]
-    assert "smart_market_data_gateway.research_capture" in actions[3]["command"]
+    capture_command = actions[3]["command"]
+    assert "smart_market_data_gateway.research_capture" in capture_command
+    assert "--max-records 0" in capture_command
+    assert "--max-records 20000" not in capture_command
+    assert "--max-seconds 5400" in capture_command
     assert "tmi.evidence_anchor prepare" in actions[4]["command"]
     assert "--evidence-anchor-payload" in actions[-1]["command"]
 
