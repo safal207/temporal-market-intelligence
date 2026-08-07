@@ -309,7 +309,7 @@ def _operator_commands(plan: ExperimentPlan) -> tuple[tuple[str, str, str], ...]
             "--output",
             str(paths.recording),
             "--max-records",
-            "20000",
+            "0",
             "--max-seconds",
             str(plan.capture_seconds),
             "--accept-current-market-data-terms",
